@@ -43,3 +43,126 @@ Como solução em não salvar imagem diretamente no banco de dados, vamos salvar
     "NomeContainer": "****"
     }
   ```
+  
+  > NomeArmazenamento: Nome que foi dado a sua conta de armazenamento quando foi criado.
+  > Chave de acesso da conta de armazenamento que você criou.
+  > Nome do seu container.
+
+### Como pegar a chave de acesso? 🤔
+- Para pegar sua chave de acesso, entre na conta de armazenamento que você criou no menu ao lado clica e escolha a opção _chave de acesso_.
+![image](https://user-images.githubusercontent.com/99252640/174484631-25b95cb1-3fc9-4a45-8472-0b3091bba901.png)
+
+- Feito isso você terá sua chave de acesso, para visualiza-la basta clicar no ícone de olho.
+![image](https://user-images.githubusercontent.com/99252640/174484679-b0edaac2-ab42-4e20-8560-66462dff9ca5.png)
+
+### Como criar um container?
+- Para criar um container você vai entrar na sua conta de armazenamento, e clicar no menu containeres.
+![image](https://user-images.githubusercontent.com/99252640/174484752-ddb30b8f-acc4-4ae5-9897-9e8ae6449062.png)
+- Acessando esse menu, basta clicar em cima da opção + Container, dar um nome e permitir que esse container seja publico.
+![image](https://user-images.githubusercontent.com/99252640/174484809-b4d0844f-bcb8-499b-a6dc-8832fa1af46e.png)
+
+3. Agora com todas essas informações, vamos inserir conforme solicitado em nosso appsettings.
+4. Com nosso appsettings.json devidamente criado, vamos criar uma **classe** que iremos salvar a imagem. No meu exemplo criei uma classe simulando um produto.
+Para criar uma classe entre na pasta model - botão direito - Nova classe.
+![image](https://user-images.githubusercontent.com/99252640/174484951-489e73df-05f0-4998-8d76-5bcda9d28a97.png)
+![image](https://user-images.githubusercontent.com/99252640/174484977-f5a6407f-63a9-479c-beef-78d80be5a88b.png)
+
+5. Dentro da classe podemos definir as propriedades que vai compor nossa classe, nesse exemplo utilizei apenas 3 campos, mas para nosso exemplo no blob vou usar apenas a propriedade responsavel para armazenar a url.
+```csharp
+      public class Produto
+      {
+        public string Nome { get; set; }
+        public decimal Preco { get; set; }
+        public string ImagemUrl { get; set; }
+      }
+```
+6. Depois de ter criada a classe, vamos agora criar um controller chamado ProdutoController, é o mesmo processo de criação da classe o que vai mudar é que na hora de criar uma classe o tipo vai ser controller conforme a imagem abaixo:
+![image](https://user-images.githubusercontent.com/99252640/174485122-1390ab1c-03a0-403a-ad6e-90e21e46d351.png)
+
+7. Depois de criado vamos criar o código conforme abaixo:
+```csharp
+    public class ProdutoController : Controller
+    {
+
+        private readonly IConfiguration _configuration;
+
+        public ProdutoController(IConfiguration configuration)
+        {
+            _configuration = configuration ?? throw new ArgumentNullException(nameof(configuration));
+        }
+
+
+        [HttpGet]
+        public IActionResult Salvar()
+        {
+            return View();
+        }
+
+        #region Operações Post
+
+        /// <summary>
+        /// Método responsável por salvar os arquivos no blob azure.
+        /// </summary>
+        /// <param name="file">Assinatura para receber o arquivo que esta sendo enviado diretamente da web.</param>
+        /// <param name="">Assinatura da nossa classe de produtos</param>
+        [HttpPost]
+        public async Task<IActionResult> SalvarFoto([FromForm] Produto produto, IFormFile file )
+        {
+            var urlImagem = await Upload(file);
+            produto.ImagemUrl = urlImagem;
+            return Ok(produto);
+
+        }
+
+        /// <summary>
+        /// Método responsável por realizar o processo de upload em nosso blob.
+        /// </summary>
+        /// <param name="file">Assinatura que vai receber o arquivo que o usuário nos enviou pela web.</param>
+        private async Task<string> Upload(IFormFile file)
+        {
+            // Recupera as credenciais de conexão do azure, via injeção de dependência do appsettings.json
+            var nomeArmazenamento = _configuration["StorageConfiguration:NomeArmazenamento"];
+            var chaveAcesso = _configuration["StorageConfiguration:ChaveAcesso"];
+            var nomeContainer = _configuration["StorageConfiguration:NomeContainer"];
+            // Acima criamos um objeto contendo as credenciais de acesso do Azure Blob Storage e abrimos uma conexão com suas APIs.
+
+
+            var storageCredentials = new StorageCredentials(nomeArmazenamento, chaveAcesso);
+            var storageAccount = new CloudStorageAccount(storageCredentials, true);
+            var blobAzure = storageAccount.CreateCloudBlobClient();
+            var container = blobAzure.GetContainerReference(nomeContainer); // Pegamos a referência do container que vamos utilizar para realizar o upload
+
+            var blob = container.GetBlockBlobReference(file.FileName); // Atribuimos um nome de arquivo para o nosso blob, ou seja, podemos manter o próprio nome ou atribuir um novo nome.
+            blob.Properties.ContentType = file.ContentType; // Aqui é definido o tipo do arquivo | Nesse trecho é definido o tipo do arquivo, ou seja, sua extensão e quando especificamos isso, podemos abrir a imagem via navegador sem realizar um download, porém, quando não especificamos essa informação, ao acessar pelo navegador, o download do arquivo é realizado.
+            await blob.UploadFromStreamAsync(file.OpenReadStream()); // Realizamos o upload do arquivo para o servidor do azure em nosso blob
+
+            return blob.SnapshotQualifiedStorageUri.PrimaryUri.ToString(); // Obtemos a url de referência do arquivo no blob no qual acabamos de realizar o upload.
+
+        }
+
+        #endregion
+    }
+```
+
+8. Agora com nosso controller criado, devemos criar a view responsavel por mandar nosso arquivo e para isso clique com o botão direito em cima do método _Salvar - Adicionar Exibição..._
+![image](https://user-images.githubusercontent.com/99252640/174485272-7735a955-d79c-4321-a353-42b05fa60e23.png)
+9. Depois de ter feito esse passo, em nossa pasta _view - produto_ vamos ter um documento HTML pasta colocar como utilizei o exemplo:
+```csharp
+    <form class="form-labels-on-top" method="post" asp-action="SalvarFoto" enctype="multipart/form-data" >
+    <div class="form-title-row">
+        <h1>Testando salvar imagem</h1>
+    </div>
+    <div class="form-row">
+        <label>
+            <span>Foto</span>
+            <input type="file" name="file" />
+        </label>
+    </div>
+    <div class="form-row">
+        <button type="submit">Salvar</button>
+    </div>
+</form>
+
+```
+10. Pronto agora so testar. 😁
+
